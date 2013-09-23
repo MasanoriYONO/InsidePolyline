@@ -1,0 +1,395 @@
+<html>
+<head>
+<title>
+{% if map_names %}
+	{% if selected_map %}
+		{% for map_name in map_names %}
+			{% ifequal map_name.name selected_map %}
+				{% if map_name.map_name_4view %}
+					ユーザー地図　[{{ map_name.map_name_4view }}]
+				{% else %}
+					ユーザー地図
+				{% endif %}
+			{% endifequal %}
+		{% endfor %}
+	{% else %}
+		ユーザー地図
+	{% endif %}
+{% endif %}
+</title>
+<meta http-equiv="content-type" content="text/html; charset=utf-8" />
+<script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jquery/1.4.2/jquery.min.js"></script>
+<script type="text/javascript" src="http://maps.google.com/maps/api/js?sensor=false"></script>
+<script src="http://ajax.googleapis.com/ajax/libs/dojo/1.6.1/dojo/dojo.xd.js" type="text/javascript"></script>
+<script type="text/javascript" src="/js/inside_polygon.js"></script>
+<script type="text/javascript">
+	var djConfig = {
+		isDebug:true,
+		parseOnLoad:true
+	};
+</script>
+<script type="text/javascript">
+dojo.require("dojo.io.script");
+var markerObj;
+var mapObj;
+var lng = 138.3842183974839;
+var lat = 34.97285824647155;
+{% if map_names %}
+	{% if selected_map %}
+		{% for map_name in map_names %}
+			{% ifequal map_name.name selected_map %}
+				{% if map_name.center_lat_lng %}
+				var latlng = new google.maps.LatLng{{ map_name.center_lat_lng }};
+				{% else %}
+				var latlng = new google.maps.LatLng(lat, lng);
+				{% endif %}
+			{% endifequal %}
+		{% endfor %}
+	{% else %}
+		var latlng = new google.maps.LatLng(lat, lng);
+	{% endif %}
+{% endif %}
+var mapOptions = {};
+var directionsRenderer;
+var directionsService
+var a_directions = []; // ルート保存配列 
+
+//closest point
+//現在位置から一番近いエリアを検索してルート表示。
+var closest_res;
+var closest_value;
+var dest_point = new point(latlng.lat,latlng.lng);
+
+google.maps.event.addDomListener(window, 'load', function(){
+	mapOptions = {
+		{% if map_names %}
+			{% if selected_map %}
+				{% for map_name in map_names %}
+					{% ifequal map_name.name selected_map %}
+						{% if map_name.zoom %}
+							zoom:{{ map_name.zoom }},
+						{% else %}
+							zoom:17,
+						{% endif %}
+					{% endifequal %}
+				{% endfor %}
+			{% else %}
+				zoom:17,
+			{% endif %}
+		{% endif %}
+		center: latlng,
+		mapTypeId: google.maps.MapTypeId.ROADMAP,
+		scaleControl: true
+	};
+	mapObj = new google.maps.Map($("#gmap")[0], mapOptions);
+
+	markerObj = new google.maps.Marker({
+		position: latlng,
+		draggable: true,
+		title: "テストマーカー",
+		map: mapObj
+	});
+	
+	// ラインを引く座標の配列の入れ物を作成 
+	var points = new Array();
+	var points_log = new Array(); 
+
+	// ラインオプションを作成
+	var polyLineOptions = {
+		path: null,
+		strokeWeight: 5,
+		strokeColor: "#0000ff",
+		strokeOpacity: "0.5"
+	};
+	{% if areas %}
+	{% for area_points in areas %}
+	// 作成するポリゴン外枠座標の配列 
+	t_area_points = {{ area_points.area }};
+	var area_points{{ area_points.key.id }} = [];
+	var t_geo_latlng;
+	for(var i=0; i<t_area_points.length; i++){
+		t_geo_latlng = new google.maps.LatLng(t_area_points[i].lat,t_area_points[i].lng);
+		area_points{{ area_points.key.id }}.push(t_geo_latlng);
+	}
+	// ポリゴンのオプションを設定 
+	var polygonOptions{{ area_points.key.id }} = {
+		path: area_points{{ area_points.key.id }},
+		strokeWeight: 2,
+		strokeColor: "#ff0000",
+		strokeOpacity: 0.5,
+		fillColor: "#ff0000",
+		fillOpacity: 0.2
+	};
+	// ポリゴンを設定
+	var polygon{{ area_points.key.id }} = new google.maps.Polygon(polygonOptions{{ area_points.key.id }});
+	polygon{{ area_points.key.id }}.setMap(mapObj);
+	
+	//エリアの情報ウィンドウを作成。2011/09/04 13:10
+	infowindow_html = '{% spaceless %}{{ area_points.comment|safe|urlize|linebreaks }}{% endspaceless %}';
+	//infowindow_html += '<form action="/send" method="get"><input type="hidden" name="key" value="{{ area_points.key.id }}"><input type="hidden" name="referer" value="1"><input type="hidden" name="map_name" value="{{ selected_map }}"><input type=hidden name=lat value=' + markerObj.getPosition().lat() + '><input type=hidden name=lng value=' + markerObj.getPosition().lng() + '><input type="submit" value="テストメール"></form>';
+	infoWindow{{ area_points.key.id }} = new google.maps.InfoWindow({
+		content:infowindow_html
+	});
+
+	google.maps.event.addListener(polygon{{ area_points.key.id }}, 'click', function(e){
+		// Html文字列を作成
+		//var html = '{% spaceless %}{{ area_points.comment|urlize|linebreaks }}{% endspaceless %}';
+		// info Windowを作成
+		//var infoWindow{{ area_points.key.id }} = new google.maps.InfoWindow();
+		//infoWindow{{ area_points.key.id }}.setContent(html);
+		
+		infowindow_html = infoWindow{{ area_points.key.id }}.getContent();
+		//フォームボタンがいくつも追加されると困るので。2011/10/31 19:18
+		match_pattern = /<form/;
+		r = infowindow_html.match(match_pattern);
+		if(!r){
+		//	infowindow_html += '<form action="/send" method="get"><input type="hidden" name="key" value="{{ area_points.key.id }}"><input type="hidden" name="referer" value="1"><input type="hidden" name="map_name" value="{{ selected_map }}"><input type=hidden name=lat value=' + markerObj.getPosition().lat() + '><input type=hidden name=lng value=' + markerObj.getPosition().lng() + '><input type="submit" value="テストメール"></form>';
+		}
+		infoWindow{{ area_points.key.id }}.setContent(infowindow_html);
+		infoWindow{{ area_points.key.id }}.setPosition(e.latLng);
+		infoWindow{{ area_points.key.id }}.open(mapObj);
+		//console.dir(e);
+	});
+
+	{% endfor %}
+	{% else %}
+	<!-- データはありません。-->
+	{% endif %}
+	// マップクリックイベントを追加
+	google.maps.event.addListener(mapObj, 'click', function(e){
+		// ポジションを変更
+		markerObj.position = e.latLng;
+		
+		// マーカーをセット
+		markerObj.setMap(mapObj);
+		$("#lat_lng").text(e.latLng.lat() + ',' + e.latLng.lng());
+	});
+	// マーカードラッグ中のイベントを追加
+	google.maps.event.addListener(markerObj, 'drag', function(e){
+		$("#lat_lng").text(e.latLng.lat() + ',' + e.latLng.lng());
+	});
+	
+	// マーカードラッグエンドのイベントを追加
+	google.maps.event.addListener(markerObj, 'dragend', function(e){
+		var output_str = e.latLng.lat() + ',' + e.latLng.lng();
+		$("#lat_lng").text(output_str);
+		
+		//closest point
+		//現在位置から一番近いエリアを検索してルート表示。
+		closest_value = Number.MAX_VALUE;
+		dest_point = new point(latlng.lat,latlng.lng);
+			
+		var v_count;
+		
+		{% if areas %}
+		{% for area_points in areas %}
+		
+		t_area_points = {{ area_points.area }};
+		v_count = t_area_points.length;
+		
+		//判定対象の点の配列を作成。
+		var vec = new Array(v_count);
+		for(var i = 0;i < v_count ;i++){
+			vec[i] = {lat:t_area_points[i].lat,lng:t_area_points[i].lng};
+		}
+		if(is_InsidePolygon(v_count, vec, {lat:e.latLng.lat(),lng:e.latLng.lng()})){
+			//情報ウィンドウの表示。2011/09/04 13:09
+			infowindow_html = infoWindow{{ area_points.key.id }}.getContent();
+		
+			match_pattern = /<form/;
+			r = infowindow_html.match(match_pattern);
+			if(!r){
+			//	infowindow_html += '<form action="/send" method="get"><input type="hidden" name="key" value="{{ area_points.key.id }}"><input type="hidden" name="referer" value="1"><input type="hidden" name="map_name" value="{{ selected_map }}"><input type=hidden name=lat value=' + e.latLng.lat() + '><input type=hidden name=lng value=' + e.latLng.lng() + '><input type="submit" value="テストメール"></form>';
+			}
+			infoWindow{{ area_points.key.id }}.setContent(infowindow_html);
+			infoWindow{{ area_points.key.id }}.open(mapObj,markerObj);
+			output_str += "　<font color=red>範囲内です。</font>";
+			$("#lat_lng").html(output_str);
+			
+		}
+				
+//		//API接続。
+//		dojo.io.script.get({
+//			url: "http://inside-polygon.appspot.com/",
+//			timeout: 10000,
+//			callbackParamName: "callback",
+//			content: {
+//				args0:v_count, //ポリゴンの配列要素の数 JSON形式
+//				args1:dojo.toJson(t_area_points), //ポリゴンの配列 JSON形式
+//				args2:dojo.toJson({lat:e.latLng.lat(),lng:e.latLng.lng()}) //マーカーの緯度経度
+//			},
+//			//handleAs: "json",
+//			load: function(response){
+//				// {result: {"judge":true,"radian":6.2831853071796}}
+//				// or
+//				// {result: {"judge":false,"radian":4.2812975387108e-15}}
+//				//var res = dojo.fromJson(response);
+//				console.log(response.result.judge);// true or false
+//				if(response.result.judge){
+//					infoWindow{{ area_points.key.id }}.open(mapObj,markerObj);
+//					output_str += "　<font color=red>範囲内です。</font>";
+//					$("#lat_lng").html(output_str);
+//					//情報ウィンドウの表示。2011/09/04 13:09
+//				}
+//				
+//			}
+//		});
+		
+		//現在位置から一番近いエリアを検索してルート表示。
+		closest_res = getClosestPolygon(v_count,t_area_points,{lat:e.latLng.lat(),lng:e.latLng.lng()});
+		//戻ってきた値を比較して一番近いところであれば地点情報を更新。
+		if(closest_res.length < closest_value){
+			dest_point.lat = t_area_points[closest_res.p].lat;
+			dest_point.lng = t_area_points[closest_res.p].lng;
+			closest_value = closest_res.length;
+		}
+		////
+			
+		{% endfor %}
+		{% endif %}
+	});
+});
+function point( lat, lng ){
+	this.lat = lat;
+	this.lng = lng;
+}
+function getClosestPolygon(v_count,vertex,d_point){
+//vertex:頂点の配列。
+//d_point:判定対象の点。{x:mouseX,y:mouseY}をセット。
+	var vec = new Array(v_count);
+	//判定対象の点を原点として各頂点を移動した場合の配列を作成。
+	for(var i = 0;i < v_count;i++){
+		vec[i] = new point( vertex[i].lat - d_point.lat, vertex[i].lng - d_point.lng );
+	}
+	var closest_length = Number.MAX_VALUE;
+	var closest_point = 0;
+	var point_length = 0;
+	for( var i = 0;i < v_count;i++ ){
+		point_length = Math.sqrt( vec[i].lat * vec[i].lat + vec[i].lng * vec[i].lng );
+		//console.log(i + ":" + point_length);
+		if(point_length < closest_length){
+			closest_length = point_length;
+			closest_point = i;
+		}
+	}
+	return {'p':closest_point, 'length':closest_length};
+}
+
+function search_btn_click(){
+	//navigation
+	// ルートを表示するマップを設定 
+	var directionsRendererOptions = {
+	//	suppressMarkers: true
+		preserveViewport: true
+	}
+	
+	directionsRenderer = new google.maps.DirectionsRenderer(directionsRendererOptions);
+	//console.log(directionsRenderer.getPanel());
+	//directionsRenderer.setMap(null);
+	//directionsRenderer.suppressPolylines = true;
+	
+	//すでにあるルートを削除
+	if(a_directions){
+		for (var j in a_directions) {
+			//マップに表示されないだけで、オブジェクトは残ってる。
+			a_directions[j].setMap(null);  
+		}
+		//オブジェクトを解放する場合。
+		a_directions.length = 0;
+	}
+	directionsRenderer.setMap(mapObj);
+	a_directions.push(directionsRenderer);
+	//途中経路を表示する場合。
+	document.getElementById("directionsPanel").innerHTML = "";
+	directionsRenderer.setPanel(document.getElementById("directionsPanel"));
+	
+	var dest_p = new google.maps.LatLng(dest_point.lat,dest_point.lng);
+	// 開始地点と終了地点、ルーティングの種類の設定
+	var request = {
+		origin: markerObj.position,
+		destination: dest_p,
+		optimizeWaypoints: true,
+		unitSystem: google.maps.DirectionsUnitSystem.METRIC,
+		travelMode: google.maps.DirectionsTravelMode.WALKING,
+		region: "JP"
+	};
+	// ルート検索を行う
+	directionsService = new google.maps.DirectionsService();
+	directionsService.route(request, function(result, status){
+		if (status == google.maps.DirectionsStatus.OK) {
+			directionsRenderer.setDirections(result);
+		}
+	});
+}
+</script>
+<script type="text/javascript">
+  var _gaq = _gaq || [];
+  _gaq.push(['_setAccount', 'UA-17100173-10']);
+  _gaq.push(['_trackPageview']);
+  (function() {
+    var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+    ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+    var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+  })();
+</script>
+<style type="text/css">
+#gmap
+{
+	margin-bottom: 5px;
+}
+#lat, #lng
+{
+	font-size: 15px;
+	/*padding:0px 12px;*/
+}
+#marker_info{
+	font-size: 14px;
+	display:none;
+}
+#information{
+	font-size: 14px;
+}
+.stop_btn
+{
+	color:#ffffff;
+	border-left:1px solid #ff0000;
+	border-right:1px solid #ff0000;
+	border-top:1px solid #ff0000;
+	border-bottom:1px solid #ff0000;
+	background-color:#ff0000;
+}
+.start_btn
+{
+	color:#ffffff;
+	border-left:1px solid #389114;
+	border-right:1px solid #389114;
+	border-top:1px solid #389114;
+	border-bottom:1px solid #389114;
+	background-color:#389114;
+}
+#footer{
+	font-size: 12px;
+}
+</style>
+</head>
+<body>
+<div id="gmap" style="float:left;width: 75%; height:89%; border: 1px solid Gray;"></div>
+<div id="directionsPanel" style="float:right;width:23%;heigh:100%"></div>
+
+<div id="information" style="float:left;width: 75%; height:10%;">
+マーカーを赤色のエリアにドロップしてみてください。エリア内に入れば情報ウィンドウが表示されます。<br />
+<input type="button" class="stop_btn" id ="search_btn" value="一番近いエリアへのルート" onclick="search_btn_click()" />
+<br />
+<div id="marker_info">lat（緯度）,lng（経度）：<span id="lat_lng"></span></div>
+<hr />
+
+<div id="footer">
+<!--
+<a rel="license" href="http://creativecommons.org/licenses/by-sa/2.1/jp/"><img alt="クリエイティブ・コモンズ・ライセンス" style="border-width:0" src="http://i.creativecommons.org/l/by-sa/2.1/jp/80x15.png" /></a>
+-->
+<span xmlns:dct="http://purl.org/dc/terms/" property="dct:title">InsidePolygon</span> by <a xmlns:cc="http://creativecommons.org/ns#" href="http://www.masanoriyono.net" property="cc:attributionName" rel="cc:attributionURL">MasanoriYono</a> is licensed under a <a rel="license" href="http://creativecommons.org/licenses/by-sa/2.1/jp/">Creative Commons 表示 - 継承 2.1 日本 License</a>.
+</div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,660 @@
+<html>
+<head>
+<title>ポリゴン登録</title>
+<meta http-equiv="content-type" content="text/html; charset=utf-8" />
+<script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jquery/1.4.2/jquery.min.js"></script>
+<script type="text/javascript" src="http://maps.google.com/maps/api/js?sensor=false"></script>
+<script type="text/javascript">
+var markerObj;
+var mapObj;
+
+google.maps.event.addDomListener(window, 'load', function(){
+	var lng = 138.3842183974839;
+	var lat = 34.97285824647155;
+	{% if map_names %}
+		{% if selected_map %}
+			{% for map_name in map_names %}
+				{% ifequal map_name.name selected_map %}
+					{% if map_name.center_lat_lng %}
+					var latlng = new google.maps.LatLng{{ map_name.center_lat_lng }};
+					{% else %}
+					var latlng = new google.maps.LatLng(lat, lng);
+					{% endif %}
+				{% endifequal %}
+			{% endfor %}
+		{% else %}
+			var latlng = new google.maps.LatLng(lat, lng);
+		{% endif %}
+	{% endif %}
+	var mapOptions = {
+		{% if map_names %}
+			{% if selected_map %}
+				{% for map_name in map_names %}
+					{% ifequal map_name.name selected_map %}
+						{% if map_name.zoom %}
+							zoom:{{ map_name.zoom }},
+						{% else %}
+							zoom:17,
+						{% endif %}
+					{% endifequal %}
+				{% endfor %}
+			{% else %}
+				zoom:17,
+			{% endif %}
+		{% endif %}
+		center: latlng,
+		mapTypeId: google.maps.MapTypeId.ROADMAP,
+		scaleControl: true,
+		draggableCursor: 'auto',
+		draggingCursor: 'move',
+		disableDoubleClickZoom: true
+	};
+	mapObj = new google.maps.Map($("#gmap")[0], mapOptions);
+
+//			markerObj = new google.maps.Marker({
+//				position: latlng,
+//				draggable: true,
+//				title: "ここの緯度経度は？",
+//				map: mapObj
+//			});
+	
+	// ラインを引く座標の配列の入れ物を作成 
+	var points = new Array();
+	var points_log = new Array(); 
+
+	// ラインオプションを作成
+	var polyLineOptions = {
+		path: null,
+		strokeWeight: 5,
+		strokeColor: "#0000ff",
+		strokeOpacity: "0.5"
+	};
+	{% if areas %}
+	{% for area_points in areas %}
+	// 作成するポリゴン外枠座標の配列 
+	t_area_points = {{ area_points.area }};
+	var area_points{{ area_points.key.id }} = [];
+	var t_geo_latlng;
+	for(var i=0; i<t_area_points.length; i++){
+		t_geo_latlng = new google.maps.LatLng(t_area_points[i].lat,t_area_points[i].lng);
+		area_points{{ area_points.key.id }}.push(t_geo_latlng);
+	}
+	// ポリゴンのオプションを設定 
+	var polygonOptions{{ area_points.key.id }} = {
+		path: area_points{{ area_points.key.id }},
+		strokeWeight: 2,
+		strokeColor: "#ff0000",
+		strokeOpacity: 0.5,
+		fillColor: "#ff0000",
+		fillOpacity: 0.2
+	};
+	// ポリゴンを設定
+	var polygon{{ area_points.key.id }} = new google.maps.Polygon(polygonOptions{{ area_points.key.id }});
+	polygon{{ area_points.key.id }}.setMap(mapObj);
+	
+	google.maps.event.addListener(polygon{{ area_points.key.id }}, 'click', function(e){
+		// Html文字列を作成
+		//var html = '{% spaceless %}{{ area_points.comment|urlize|linebreaks }}{% endspaceless %}<form action="/delete" method="post"><input type="hidden" name="id" value="{{ area_points.key.id }}"><input type="submit" value="Delete"></form>';
+		//html += '<form action="/edit" method="post"><input type="hidden" name="id" value="{{ area_points.key.id }}"><input type="submit" value="Edit"></form>';
+		var html = '{% spaceless %}{{ area_points.comment|safe|urlize|linebreaks }}{% endspaceless %}';
+		html += '<font size="2"><a href="./edit?id={{ area_points.key.id }}&map_name={{ area_points.map_name }}">編集</a></font>&nbsp;';
+		html += '<font size="2"><a href="./delete?id={{ area_points.key.id }}">削除</a></font>';
+		// info Windowを作成
+		var infoWindow{{ area_points.key.id }} = new google.maps.InfoWindow();
+		infoWindow{{ area_points.key.id }}.setContent(html);
+		infoWindow{{ area_points.key.id }}.setPosition(e.latLng);
+		infoWindow{{ area_points.key.id }}.open(mapObj);
+		//console.dir(e);
+	});
+
+	{% endfor %}
+	{% else %}
+	<!-- データはありません。-->
+	{% endif %}
+	// マップクリックイベントを追加
+//	google.maps.event.addListener(mapObj, 'click', function(e){
+//				// ポジションを変更
+//				markerObj.position = e.latLng;
+//				
+//				// マーカーをセット
+//				markerObj.setMap(mapObj);
+//				$("#lat_lng").text(e.latLng.lat() + ',' + e.latLng.lng());
+//	});
+	
+	google.maps.event.addListener(mapObj, "click", mapLeftClick);
+	mapHolder = null;
+	mapOptions = null;
+		
+	google.maps.event.addListener(mapObj, 'dragend', function() {
+		$("#center_lat_lng").val(mapObj.getCenter());
+		$("#zoom").val(mapObj.getZoom());
+	});
+	
+	google.maps.event.addListener(mapObj, 'zoom_changed', function() {
+		$("#center_lat_lng").val(mapObj.getCenter());
+		$("#zoom").val(mapObj.getZoom());
+	});
+	
+	//editable polyline
+	initPolyline();
+	//初期読み込み時。
+	$("#center_lat_lng").val(mapObj.getCenter());
+	$("#zoom").val(mapObj.getZoom());
+//			// マーカードラッグ中のイベントを追加
+//			google.maps.event.addListener(markerObj, 'drag', function(e){
+//				$("#lat_lng").text(e.latLng.lat() + ',' + e.latLng.lng());
+//			});
+//			
+//			// マーカードラッグエンドのイベントを追加
+//			google.maps.event.addListener(markerObj, 'dragend', function(e){
+//				$("#lat_lng").text(e.latLng.lat() + ',' + e.latLng.lng());
+//				
+//				// クリックした場所を配列に追加
+//				points.push(e.latLng);
+//				points_log.push(e.latLng);
+//				// 配列の数を２つに調整する
+//				if (points.length > 2) {
+//					points.shift();
+//				}
+//				// ラインを作成
+//				if (points.length > 0) {
+//					polyLineOptions.path = points;
+//					var poly = new google.maps.Polyline(polyLineOptions);
+//					poly.setMap(mapObj);
+//				}
+//				
+//				var output_str = "[";
+//				for(var i in points_log){
+//					//output_str += "new google.maps.LatLng(" + points_log[i].lat() + "," + points_log[i].lng() + "),\n";
+//					output_str += "{lat:" + points_log[i].lat() + ",lng:" + points_log[i].lng() + "},";
+//				}
+//				output_str = output_str.slice(0,output_str.length -1);
+//				output_str += "]";
+//				
+//				$("#vertex").text(output_str);
+//			});
+});
+
+/////////////////////////////
+//editable polyline
+var polyLine;
+var tmpPolyLine;
+var markers = [];
+var vmarkers = [];
+
+var initPolyline = function() {
+	var polyOptions = {
+		strokeColor: "#3355FF",
+		strokeOpacity: 0.8,
+		strokeWeight: 2
+	};
+	var tmpPolyOptions = {
+		strokeColor: "#3355FF",
+		strokeOpacity: 0.4,
+		strokeWeight: 2
+	};
+	polyLine = new google.maps.Polyline(polyOptions);
+	polyLine.setMap(mapObj);
+	tmpPolyLine = new google.maps.Polyline(tmpPolyOptions);
+	tmpPolyLine.setMap(mapObj);
+};
+
+var mapLeftClick = function(event) {
+	if (event.latLng) {
+		var marker = createMarker(event.latLng);
+		markers.push(marker);
+		if (markers.length != 1) {
+			var vmarker = createVMarker(event.latLng);
+			vmarkers.push(vmarker);
+			vmarker = null;
+		}
+		var path = polyLine.getPath();
+		path.push(event.latLng);
+		marker = null;
+		
+		//地図をクリックした場所の緯度経度の表示
+		$("#lat_lng").text(event.latLng.lat() + ',' + event.latLng.lng());
+		
+		var output_str = "[";
+		for(var i in markers){
+			output_str += "{lat:" + markers[i].position.lat() + ",lng:" + markers[i].position.lng() + "},";
+		}
+		output_str = output_str.slice(0,output_str.length -1);
+		output_str += "]";
+		
+		$("#vertex").text(output_str);
+		
+	}
+	event = null;
+};
+
+var createMarker = function(point) {
+	var imageNormal = new google.maps.MarkerImage(
+		"/images/square.png",
+		new google.maps.Size(11, 11),
+		new google.maps.Point(0, 0),
+		new google.maps.Point(6, 6)
+	);
+	var imageHover = new google.maps.MarkerImage(
+		"/images/square_over.png",
+		new google.maps.Size(11, 11),
+		new google.maps.Point(0, 0),
+		new google.maps.Point(6, 6)
+	);
+	var marker = new google.maps.Marker({
+		position: point,
+		map: mapObj,
+		icon: imageNormal,
+		draggable: true,
+		title: "ドラッグすると頂点を移動できます。クリックすると頂点を削除します。地図上をクリックすると頂点が追加されます。"
+	});
+	google.maps.event.addListener(marker, "mouseover", function() {
+		marker.setIcon(imageHover);
+	});
+	google.maps.event.addListener(marker, "mouseout", function() {
+		marker.setIcon(imageNormal);
+	});
+	google.maps.event.addListener(marker, "drag", function(e) {
+		for (var m = 0; m < markers.length; m++) {
+			if (markers[m] == marker) {
+				polyLine.getPath().setAt(m, marker.getPosition());
+				moveVMarker(m);
+				break;
+			}
+		}
+		m = null;
+	});
+	
+	google.maps.event.addListener(marker, "dragend", function(e) {
+		var output_str = "[";
+		for(var i in markers){
+			output_str += "{lat:" + markers[i].position.lat() + ",lng:" + markers[i].position.lng() + "},";
+		}
+		output_str = output_str.slice(0,output_str.length -1);
+		output_str += "]";
+		
+		$("#vertex").text(output_str);
+	});
+	
+	google.maps.event.addListener(marker, "click", function() {
+		for (var m = 0; m < markers.length; m++) {
+			if (markers[m] == marker) {
+				marker.setMap(null);
+				markers.splice(m, 1);
+				polyLine.getPath().removeAt(m);
+				removeVMarkers(m);
+				break;
+			}
+		}
+		m = null;
+		
+		var output_str = "[";
+		for(var i in markers){
+			output_str += "{lat:" + markers[i].position.lat() + ",lng:" + markers[i].position.lng() + "},";
+		}
+		output_str = output_str.slice(0,output_str.length -1);
+		output_str += "]";
+		
+		$("#vertex").text(output_str);
+	});
+	return marker;
+};
+
+var createVMarker = function(point) {
+	var prevpoint = markers[markers.length-2].getPosition();
+	var imageNormal = new google.maps.MarkerImage(
+		"/images/square_transparent.png",
+		new google.maps.Size(11, 11),
+		new google.maps.Point(0, 0),
+		new google.maps.Point(6, 6)
+	);
+	var imageHover = new google.maps.MarkerImage(
+		"/images/square_transparent_over.png",
+		new google.maps.Size(11, 11),
+		new google.maps.Point(0, 0),
+		new google.maps.Point(6, 6)
+	);
+	var marker = new google.maps.Marker({
+		position: new google.maps.LatLng(
+			point.lat() - (0.5 * (point.lat() - prevpoint.lat())),
+			point.lng() - (0.5 * (point.lng() - prevpoint.lng()))
+		),
+		map: mapObj,
+		icon: imageNormal,
+		draggable: true,
+		title: "ドラッグすると頂点間に頂点を追加できます。"
+	});
+	google.maps.event.addListener(marker, "mouseover", function() {
+		marker.setIcon(imageHover);
+	});
+	google.maps.event.addListener(marker, "mouseout", function() {
+		marker.setIcon(imageNormal);
+	});
+	google.maps.event.addListener(marker, "dragstart", function() {
+		for (var m = 0; m < vmarkers.length; m++) {
+			if (vmarkers[m] == marker) {
+				var tmpPath = tmpPolyLine.getPath();
+				tmpPath.push(markers[m].getPosition());
+				tmpPath.push(vmarkers[m].getPosition());
+				tmpPath.push(markers[m+1].getPosition());
+				break;
+			}
+		}
+		m = null;
+	});
+	google.maps.event.addListener(marker, "drag", function() {
+		for (var m = 0; m < vmarkers.length; m++) {
+			if (vmarkers[m] == marker) {
+				tmpPolyLine.getPath().setAt(1, marker.getPosition());
+				break;
+			}
+		}
+		m = null;
+	});
+	google.maps.event.addListener(marker, "dragend", function() {
+		for (var m = 0; m < vmarkers.length; m++) {
+			if (vmarkers[m] == marker) {
+				var newpos = marker.getPosition();
+				var startMarkerPos = markers[m].getPosition();
+				var firstVPos = new google.maps.LatLng(
+					newpos.lat() - (0.5 * (newpos.lat() - startMarkerPos.lat())),
+					newpos.lng() - (0.5 * (newpos.lng() - startMarkerPos.lng()))
+				);
+				var endMarkerPos = markers[m+1].getPosition();
+				var secondVPos = new google.maps.LatLng(
+					newpos.lat() - (0.5 * (newpos.lat() - endMarkerPos.lat())),
+					newpos.lng() - (0.5 * (newpos.lng() - endMarkerPos.lng()))
+				);
+				var newVMarker = createVMarker(secondVPos);
+				newVMarker.setPosition(secondVPos);//apply the correct position to the vmarker
+				var newMarker = createMarker(newpos);
+				markers.splice(m+1, 0, newMarker);
+				polyLine.getPath().insertAt(m+1, newpos);
+				marker.setPosition(firstVPos);
+				vmarkers.splice(m+1, 0, newVMarker);
+				tmpPolyLine.getPath().removeAt(2);
+				tmpPolyLine.getPath().removeAt(1);
+				tmpPolyLine.getPath().removeAt(0);
+				newpos = null;
+				startMarkerPos = null;
+				firstVPos = null;
+				endMarkerPos = null;
+				secondVPos = null;
+				newVMarker = null;
+				newMarker = null;
+				break;
+			}
+		}
+		
+		var output_str = "[";
+		for(var i in markers){
+			output_str += "{lat:" + markers[i].position.lat() + ",lng:" + markers[i].position.lng() + "},";
+		}
+		output_str = output_str.slice(0,output_str.length -1);
+		output_str += "]";
+		
+		$("#vertex").text(output_str);
+	});
+	return marker;
+};
+
+var moveVMarker = function(index) {
+	var newpos = markers[index].getPosition();
+	if (index != 0) {
+		var prevpos = markers[index-1].getPosition();
+		vmarkers[index-1].setPosition(new google.maps.LatLng(
+			newpos.lat() - (0.5 * (newpos.lat() - prevpos.lat())),
+			newpos.lng() - (0.5 * (newpos.lng() - prevpos.lng()))
+		));
+		prevpos = null;
+	}
+	if (index != markers.length - 1) {
+		var nextpos = markers[index+1].getPosition();
+		vmarkers[index].setPosition(new google.maps.LatLng(
+			newpos.lat() - (0.5 * (newpos.lat() - nextpos.lat())), 
+			newpos.lng() - (0.5 * (newpos.lng() - nextpos.lng()))
+		));
+		nextpos = null;
+	}
+	newpos = null;
+	index = null;
+};
+
+var removeVMarkers = function(index) {
+	if (markers.length > 0) {//clicked marker has already been deleted
+		if (index != markers.length) {
+			vmarkers[index].setMap(null);
+			vmarkers.splice(index, 1);
+		} else {
+			vmarkers[index-1].setMap(null);
+			vmarkers.splice(index-1, 1);
+		}
+	}
+	if (index != 0 && index != markers.length) {
+		var prevpos = markers[index-1].getPosition();
+		var newpos = markers[index].getPosition();
+		vmarkers[index-1].setPosition(new google.maps.LatLng(
+			newpos.lat() - (0.5 * (newpos.lat() - prevpos.lat())),
+			newpos.lng() - (0.5 * (newpos.lng() - prevpos.lng()))
+		));
+		prevpos = null;
+		newpos = null;
+	}
+	index = null;
+};
+/////////////////////////////
+//URLの表示部分
+$(function(){
+     $(".open").click(function(){
+      $("#slideBox").slideToggle("slow");
+     });
+});
+
+$(function() {
+   $('#accordion dd').hide();
+   $('#accordion dt a').click(function(){
+       $('#accordion dd').slideUp();
+       $(this).parent().next().slideDown();
+       return false;
+   });
+});
+</script>
+<style type="text/css">
+#gmap
+{
+	margin-bottom: 5px;
+	float:left;
+	width: 74%;
+	height: 84%;
+	border: 1px solid Gray;
+}
+#lat, #lng
+{
+	font-size: 15px;
+	/*padding:0px 12px;*/
+}
+.open{
+	background: #fc6;
+	color: #fff;
+	cursor: pointer;
+	text-align:center;
+	width:600px;
+	padding: 3px
+}
+#slideBox{
+	padding: 10px;
+	border: 1px #ccc solid;
+	display:none;
+	/*width:583px;*/
+}
+#accordion{
+	border: 1px #ccc solid;
+	border-top:none;
+	width:300px;
+}
+#accordion dt{
+	background: #ddd;
+	padding: 3px;
+	border-top: 1px #ccc solid;
+	}
+	#accordion dt a{color: #000; text-decoration:none;display:block;}
+#accordion dd{margin: 3px; text-align:left;}
+#marker_info{
+	/*display:none;*/
+}
+.msg{
+	font-size: 14px;
+}
+#information{
+	font-size: 14px;
+}
+#menu{
+	font-size: 14px;
+	margin-right:0;
+	overflow: auto;
+	float:right;
+	width:25%;
+	heigh:100%
+}
+#lat_lng{
+	/*display:none;*/
+}
+#footer{
+	font-size: 12px;
+}
+input.submit4ie{
+    overflow:visible;
+}
+div.box {
+	overflow: auto;
+}
+
+</style>
+</head>
+<body>
+<div class="box">
+<div id="gmap"></div>
+
+<div id="menu">
+メニュー
+<dl id="accordion">
+<dt><a href="">あなたの地図リスト</a></dt>
+<dd>
+<form action="/addview" method="post">
+あなたの地図リスト
+{% if map_names %}
+<select id="map_name" name="map_name">
+<option value="">すべての登録エリアを表示</option>
+{% for map_name in map_names %}
+{% ifequal map_name.name selected_map %}<option value="{{ map_name.name }}" selected>{{ map_name.name }}　[{{ map_name.map_name_4view }}]</option>{% endifequal %}
+{% ifnotequal map_name.name selected_map %}<option value="{{ map_name.name }}">{{ map_name.name }}　[{{ map_name.map_name_4view }}]</option>{% endifnotequal %}
+{% endfor %}
+</select>
+{% else %}
+<!-- データはありません。-->
+{% endif %}
+<input type="submit" class="submit4ie"  value="このリストに登録されているエリアだけ表示">
+</form>
+</dd>
+
+<dt><a href="">あなたの地図の設定</a></dt>
+<dd>
+<form action="/edit_view" method="post">
+{% if map_names %}
+<select id="map_name" name="map_name">
+<option value="">すべての登録エリアを表示</option>
+{% for map_name in map_names %}
+{% ifequal map_name.name selected_map %}<option value="{{ map_name.name }}" selected>{{ map_name.name }}　[{{ map_name.map_name_4view }}]</option>{% endifequal %}
+{% ifnotequal map_name.name selected_map %}<option value="{{ map_name.name }}">{{ map_name.name }}　[{{ map_name.map_name_4view }}]</option>{% endifnotequal %}
+{% endfor %}
+</select><br />
+{% else %}
+<!-- データはありません。-->
+{% endif %}
+選択した地図に名前をつけられます。表示している地図のセンター、スケールも設定できます。<br />
+気に入った表示状態にして「この地図の表示名と状態を登録」ボタンをクリックしてください。<br />
+{% if map_names %}
+	{% if selected_map %}
+		{% for map_name in map_names %}
+			{% ifequal map_name.name selected_map %}
+				{% if map_name.map_name_4view %}
+					<input type="text" size="40" id="map_name_4view" name="map_name_4view" value="{{ map_name.map_name_4view }}" ><br />
+				{% else %}
+					<input type="text" size="40" id="map_name_4view" name="map_name_4view" placeholder="地図の名前をつけてください。" ><br />
+				{% endif %}
+			{% endifequal %}
+		{% endfor %}
+	{% else %}
+		<input type="text" size="40" id="map_name_4view" name="map_name_4view" placeholder="地図の名前をつけてください。" ><br />
+	{% endif %}
+{% endif %}
+<input type="text" size="40" id="center_lat_lng" name="center_lat_lng" value="" placeholder="地図の中心（ドラッグすると変化します。）"><br />
+<input type="text" size="40" id="zoom" name="zoom" value="" placeholder="地図のズームレベス（拡大縮小すると変化します。）"><br />
+<input type="submit" class="submit4ie" value="この地図の表示名と状態を登録">
+</form>
+</dd>
+
+<dt><a href="">エリア登録</a></dt>
+<dd>
+<form action="/add" method="post">
+<div>
+地図上をクリックして囲んでいきます。クリックして表示された各頂点はドラッグ＆ドロップで移動できます。<br />
+各頂点を再度クリックするとその頂点は削除されます。<br />
+始点と終点はつながっていなくてかまいません。自動的につないでポリゴンにします。<br />
+{% if map_names %}
+<select id="map_name" name="map_name">
+{% for map_name in map_names %}
+{% ifequal map_name.name selected_map %}<option value="{{ map_name.name }}" selected>{{ map_name.name }}　[{{ map_name.map_name_4view }}]</option>{% endifequal %}
+{% ifnotequal map_name.name selected_map %}<option value="{{ map_name.name }}">{{ map_name.name }}　[{{ map_name.map_name_4view }}]</option>{% endifnotequal %}
+{% endfor %}
+</select><br />
+{% else %}
+<!-- データはありません。-->
+{% endif %}
+<textarea id="vertex" name="vertex" rows="3" cols="34" readonly></textarea>
+</div>
+<textarea id="comment" name="comment" rows="2" cols="34" placeholder="このエリアの説明を入力してください。"></textarea>
+<textarea id="information" name="information" rows="5" cols="34" placeholder="このエリアのメール配信情報を入力してください。">{{ area_points.information }}</textarea>
+<input type="text" id="category" name="category" value="{{ area_points.category }}" placeholder="このエリアのカテゴリを入力してください。">
+<div><input type="submit" value="エリアを登録"></div>
+</form>
+</dd>
+
+
+<dt><a href="">メール履歴</a></dt>
+<dd>
+<div>あなたのマップの登録エリアから配信されたメールの履歴を表示します。</div>
+<p>
+<a href="/list/mail_history" target="_blank">配信履歴</a>
+</dd>
+
+
+</dl>
+
+</div>
+
+<div id="information" style="float:left;width:75%;heigh:15%">
+<div id="marker_info">lat（緯度）,lng（経度）：<span id="lat_lng"></span></div>
+<p class="open">あなたの地図のURL(Googleアカウントが無い一般ユーザーも閲覧できます。)</p>
+<div id="slideBox">
+{% if map_names %}
+{% for map_name in map_names %}
+[{{ map_name.map_name_4view }}]　<a href="./user_map?map_name={{ map_name.name }}">{{ host_path }}/user_map?map_name={{ map_name.name }}</a><br />
+{% endfor %}
+{% else %}
+<!-- データはありません。-->
+{% endif %}
+</div>
+<div><a href="./">top</a></div>
+<hr />
+<div id="footer">
+<!--
+<a rel="license" href="http://creativecommons.org/licenses/by-sa/2.1/jp/"><img alt="クリエイティブ・コモンズ・ライセンス" style="border-width:0" src="http://i.creativecommons.org/l/by-sa/2.1/jp/80x15.png" /></a>
+-->
+<span xmlns:dct="http://purl.org/dc/terms/" property="dct:title">InsidePolygon</span> by <a xmlns:cc="http://creativecommons.org/ns#" href="http://www.masanoriyono.net" property="cc:attributionName" rel="cc:attributionURL">MasanoriYono</a> is licensed under a <a rel="license" href="http://creativecommons.org/licenses/by-sa/2.1/jp/">Creative Commons 表示 - 継承 2.1 日本 License</a>.
+</div>
+</div>
+
+</div>
+</body>
+</html>

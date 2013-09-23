@@ -1,0 +1,63 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+application: inside-polyline
+version: 1
+runtime: python
+#runtime: python27
+api_version: 1
+#threadsafe: false
+
+handlers:
+- url: /js
+  static_dir: js
+  secure: optional
+
+- url: /images
+  static_dir: images
+  secure: optional
+
+- url: /css
+  static_dir: css
+  secure: optional
+
+- url: /favicon.ico
+  mime_type: image/x-icon
+  static_files: images/favicon.ico
+  upload: images/favicon.ico
+  secure: optional
+
+- url: /robots.txt
+  static_files: txt/robots.txt
+  upload: txt/robots.txt
+  secure: optional
+
+- url: /mp3/(.*)
+  mime_type: audio/x-mp3
+  static_files: mp3/\1
+  upload: mp3/(.*)
+  secure: optional
+
+#管理者用
+- url: /admin/.*
+  script: admin.py
+  login: admin
+  secure: optional
+
+#登録エリアのリスト表示
+- url: /list/.*
+  script: list.py
+  secure: optional
+
+#一般向け
+- url: /.*
+  script: main2.py
+  secure: optional
+
+#- url: /
+#  static_files: htdocs/inside_polyline_api_sample.html
+#  upload: /
+#- url: /
+#  static_dir: htdocs
+
+builtins:  
+- remote_api: on

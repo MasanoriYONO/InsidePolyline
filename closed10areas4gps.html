@@ -1,0 +1,734 @@
+<!DOCTYPE html>
+<html>
+<title>近隣10箇所（β版）</title>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, minimum-scale=1, maximum-scale=1"/>
+<link rel="stylesheet" href="http://code.jquery.com/mobile/1.0/jquery.mobile-1.0.min.css" />
+<link rel="stylesheet" type="text/css" href="/css/main-mobile.css" />
+<script type="text/javascript" src="http://maps.google.com/maps/api/js?sensor=true"></script>
+<script src="http://code.jquery.com/jquery-1.6.4.min.js"></script>
+<script type="text/javascript">
+$(document).bind("mobileinit", function(){
+	//$.mobile.ajaxFormsEnabled = false;
+	//$.mobile.ajaxEnabled = false;
+	//$.mobile.ajaxLinksEnabled = false;
+	//$.mobile.pushStateEnabled = false;
+	//これがあるとtoolbarがfixedでも消えない。
+	//2011/10/11 08:03 jquery.mobile-1.0rc1では削除された。
+	//$.fixedToolbars.setTouchToggleEnabled(false);
+	//推奨の書き方はこちらになった。2011/12/10 05:28
+	$.mobile.fixedToolbars.setTouchToggleEnabled(false);
+});
+</script>
+<!-- CDN -->
+<!-- <script src="http://code.jquery.com/mobile/1.0/jquery.mobile-1.0.min.js"></script> -->
+<!-- fixedToolbars modify -->
+<script type="text/javascript" src="/js/jquery.mobile-1.0.js"></script>
+<script type="text/javascript" src="/js/inside_polygon.js"></script>
+<script type="text/javascript" src="/js/jquery.ui.map.full.min_d.js"></script>
+<script type="text/javascript" src="/js/jquery.ui.map.extensions.js"></script>
+<script type="text/javascript">
+
+function zero_pad(v){
+	var rel = "00" + v;
+	return rel.slice(-2);
+}
+var trackerId = 0;
+var geocoder;
+var theUser = {};
+var testMarker = {};
+var map = {};
+var opts = {};
+var latLng;
+var testMarker_latlng;
+var switch_btn_label_tracking="GPS on";
+var switch_btn_label_not_tracking="GPS off";
+var gps;
+var b_info=[];
+
+//closest point 2011/09/09 16:40
+//現在位置から一番近いエリアを検索してルート表示。
+var directionsRenderer;
+var directionsService
+var a_directions = []; // ルート保存配列 
+var closest_res;
+var closest_value;
+var dest_point;
+
+//GPS停止前のポイント。2011/09/12 17:28
+var last_latlng = 0;
+
+var output_str = "";
+/*
+2011/09/14 16:12
+GPS開始は起動時。
+停止は読み込み後に一度場所を取得できた場合。
+再度場所を取得したい時はリロードしてもらう。
+*/
+//情報ウィンドウやポリゴンを動的に削除、追加したいので表示中の配列を確保。2011/10/03 06:10
+var info_windows = [];
+var polygon_areas = [];
+
+$('#gps_map').live("pagecreate", function() {
+	console.log("#gps_map" + ":" + "pagecreate");
+	//google.maps.event.addDomListener(window, 'load', function(){
+	geocoder = new google.maps.Geocoder();
+	try{
+		if (navigator.geolocation){
+			gps = navigator.geolocation;
+			gps.getCurrentPosition(function(pos){
+				initialize(pos.coords.latitude,pos.coords.longitude,0);
+				//サンプル画像取得用。2011/10/07 05:42
+				//initialize(34.97285824647155, 138.3842183974839, 1);
+			},function(error){
+				$('#location').text("[getCurrentPosition]エラー："+ error.message);
+			},{enableHighAccuracy:true, maximumAge:1, timeout:10000});
+			//{maximumAge:Infinity, timeout:10000});
+		}
+	}catch(e){
+		alert("geolocationサービスは使えません。サンプル表示になります。");
+		initialize(34.97285824647155, 138.3842183974839, 1);
+	}
+	
+	$(document).delegate("#switch_btn", "click", function(e) {
+	//$("#switch_btn").click(function(){
+		//GPS起動中の表示ラベル
+		//if($('#switch_btn').siblings('.ui-btn-inner').children('.ui-btn-text').text() == switch_btn_label_not_tracking){
+		if($('#switch_btn').children('.ui-btn-inner').children('.ui-btn-text').text() == switch_btn_label_not_tracking){
+			/*
+			表示ウィンドウが開いたフラグがたっている状態 = 一度でもエリア内に入った事があり、まだエリア外に出たGPS情報を受信していない状態
+			ではトラッキングを停止させずにエリア外に出たGPS情報を受信するまではまでは停止操作を無視する。
+			そうでないと、情報ウィンドウやイベントがエリア外に出るまで起こり続けて鬱陶しい。
+			ただし、今までb_infoという変数ひとつで判断していたので、複数のエリアがある場合に出入りが無かったエリアで
+			この変数フラグを書き換えられていた可能性がある。
+			なので、エリア数分の配列を用意して、入ったエリアがGPS情報を監視してエリア外に出た情報を得たらフラグを変えるようにする。
+			エリア数分の配列を全部チェックしてすべてのエリアから出た、という情報を得た時点でGPSの停止操作を受け入れるようにする。
+			*/
+			var b_info_all = false;
+			//for(var i=0; i< b_info.length; i++){
+			for(var i in b_info){
+				if(b_info[i]){
+					b_info_all = true;
+					break;
+				}
+			}
+			
+			//どこかのエリアに入って、まだエリア内にいる、もしくはエリアから出たことをGPSから取得できていない状態。
+			if(b_info_all){
+				
+			//すべてのエリア内に入った事がない状態、もしくは一度入ったけれどエリア外に出た状態あれば停止。
+			}else{
+				stopTracking();
+			}
+			
+		//GPS停止中の表示ラベル
+		}else{
+			startTracking();
+		}
+	});
+	//スマートフォン用はオブジェクトの変数名を変更しているのでコピーしても動作しない。
+	$(document).delegate("#search_btn", "click", function(e) {
+	//この書き方だとイベントがフッタ等にも伝播してる様子でレスポンスが悪い。
+	//$('#search_btn').click(function() {
+		//navigation
+		// ルートを表示するマップを設定 
+		
+		try{
+			var directionsRendererOptions = {
+			//	suppressMarkers: true
+				preserveViewport: true
+			}
+			
+			directionsRenderer = new google.maps.DirectionsRenderer(directionsRendererOptions);
+			//console.log(directionsRenderer.getPanel());
+			//directionsRenderer.setMap(null);
+			//directionsRenderer.suppressPolylines = true;
+			
+			//すでにあるルートを削除
+			if(a_directions){
+				for (var j in a_directions) {
+					//マップに表示されないだけで、オブジェクトは残ってる。
+					a_directions[j].setMap(null);  
+				}
+				//オブジェクトを解放する場合。
+				a_directions.length = 0;
+			}
+			directionsRenderer.setMap(map);
+			a_directions.push(directionsRenderer);
+			//途中経路を表示する場合。
+			$("#directionsPanel").html("");
+			
+			//directionsRenderer.setPanel(document.getElementById("directionsPanel"));
+			
+			var dest_p = new google.maps.LatLng(dest_point.lat,dest_point.lng);
+			//for debug
+			//alert(dest_point.lat +":" + dest_point.lng);
+
+			// 開始地点と終了地点、ルーティングの種類の設定
+			var request = {
+				origin: theUser.position,
+				//origin: map.getCenter(),//for debug
+				destination: dest_p,
+				optimizeWaypoints: true,
+				unitSystem: google.maps.DirectionsUnitSystem.METRIC,
+				travelMode: google.maps.DirectionsTravelMode.WALKING,
+				region: "JP"
+			};
+			// ルート検索を行う
+			directionsService = new google.maps.DirectionsService();
+			directionsService.route(request, function(result, status){
+				if (status == google.maps.DirectionsStatus.OK) {
+					directionsRenderer.setDirections(result);
+					//console.dir(result);
+					//console.dir(result.routes[0].legs[0].duration);
+					var t_str = result.routes[0].legs[0].duration.value + " m";
+					t_str += "（約 " + result.routes[0].legs[0].duration.text + "）";
+					$("#directionsPanel").html(t_str);
+					if($("#search_btn").hasClass("ui-btn-active")){
+						$("#search_btn").removeClass("ui-btn-active");
+					}
+				}
+			});
+		}catch(e){
+			alert("現在位置を特定できていません。");
+		}
+	});
+	
+	$(document).delegate("#delete_route_btn", "click", function(e) {
+	//$("#delete_route_btn").click(function(){
+		//navigation
+		if(a_directions){
+			for (var j in a_directions) {
+				//マップに表示されないだけで、オブジェクトは残ってる。
+				a_directions[j].setMap(null);  
+			}
+			//オブジェクトを解放する場合。
+			a_directions.length = 0;
+		}
+		$("#directionsPanel").html("");
+		////ボタンの追加のテスト。
+        //$(["<a href='#' data-role='button' data-icon='arrow-r' data-theme='a'>ぼたん</a>"].join("")).appendTo($("#button_list")).buttonMarkup();
+        //
+        if($("#delete_route_btn").hasClass("ui-btn-active")){
+			$("#delete_route_btn").removeClass("ui-btn-active");
+		}
+	});
+});
+
+$('#gps_map').live("pageshow", function() {
+	console.log("#gps_map" + ":" + "pageshow");
+});
+
+$('#gps_map').live("pagehide", function() {
+	console.log("#gps_map" + ":" + "pagehide");
+	stopTracking();
+});
+
+$('#gps_map').live("pagebeforecreate", function() {
+	console.log("#gps_map" + ":" + "pagebeforecreate");
+});
+
+$('#gps_map').live("pagebeforehide", function() {
+	console.log("#gps_map" + ":" + "pagebeforehide");
+});
+
+$('#gps_map').live("pagebeforeshow", function() {
+	console.log("#gps_map" + ":" + "pagebeforeshow");
+});
+
+function initialize(latitude,longitude,sample4pc) {
+	latLng = new google.maps.LatLng(latitude,longitude);
+	opts = {
+			zoom:17,
+			center:latLng,
+			mapTypeId:google.maps.MapTypeId.ROADMAP,
+			navigationControlOptions : {
+					style : google.maps.NavigationControlStyle.SMALL,
+					position : google.maps.ControlPosition.RIGHT
+				},
+			disableDoubleClickZoom:true,
+			streetViewControl:false
+		};
+	map = new google.maps.Map(document.getElementById('map_canvas'), opts);
+	
+	theUser = new google.maps.Marker({
+		position: latLng,
+		map: map,
+		title: "現在位置"
+	});
+
+	$.getJSON("/list/closed10jsonp?lat="+ latitude + "&lng=" + longitude +"&callback=?", function(e){
+		//マップから情報ウィンドウとエリアを非表示にしてオブジェクトを破棄
+		if (polygon_areas) {
+			for (var i in polygon_areas) {
+				var t_p = polygon_areas[i];
+				t_p.setMap(null);
+				t_p = null;
+			}
+		}
+		//イベントリスナも削除。でもこれはNGみたいでエラーが戻るのでコメント。
+		//google.maps.event.clearListeners(polygon{{ area_points.key.id }}, 'click');
+		
+		closest_value = Number.MAX_VALUE;
+		dest_point = new point(0,0);
+			
+		////受信したデータからポリゴン作成。
+		for(var j=0; j<e.areas.length; j++){
+			//t_area_points = e.areas[j].area;
+			eval("var area_points" + e.areas[j].id + " = [];");
+			var t_geo_latlng;
+			//console.log(e.areas[j].area.length);
+			for(var i=0; i < e.areas[j].area.length; i++){
+				t_geo_latlng = new google.maps.LatLng(e.areas[j].area[i].lat,e.areas[j].area[i].lng);
+				eval("area_points" + e.areas[j].id +".push(t_geo_latlng);");
+				//area_points{{ area_points.key.id }}.push(t_geo_latlng);
+			}
+			//console.log("area_points" + e.areas[j].id);
+			//console.dir(eval("area_points" + e.areas[j].id));
+			
+			//ポリゴンの中心点を求める。
+			var t_lat = 0;
+			var t_lng = 0;
+			for(var i=0; i < e.areas[j].area.length; i++){
+				t_lat += e.areas[j].area[i].lat;
+				t_lng += e.areas[j].area[i].lng;
+			}
+			var ave_lat = t_lat / e.areas[j].area.length;
+			var ave_lng = t_lng / e.areas[j].area.length;
+			eval('polygon_center' + e.areas[j].id + ' = new google.maps.LatLng(ave_lat,ave_lng);');
+			// ポリゴンのオプションを設定
+			//var polygonOptions{{ area_points.key.id }} = {
+			eval('var polygonOptions' + e.areas[j].id + ' = {path:area_points' + e.areas[j].id + ',strokeWeight: 2,strokeColor: "#ff0000",strokeOpacity: 0.5,fillColor: "#ff0000",fillOpacity: 0.2};');
+			
+			//console.dir(eval("polygonOptions" + e.areas[j].id));
+			// ポリゴンを設定
+			//polygon{{ area_points.key.id }} = new google.maps.Polygon(polygonOptions{{ area_points.key.id }});
+			eval("polygon" + e.areas[j].id + " = new google.maps.Polygon(polygonOptions" + e.areas[j].id + ");");
+			//polygon{{ area_points.key.id }}.setMap(map);
+			eval("polygon" + e.areas[j].id + ".setMap(map);");
+			eval('polygon_areas.push(polygon' + e.areas[j].id + ');');
+			
+			//エリアの情報ウィンドウを作成。2011/09/04 13:10
+			//infowindow_html = '{% spaceless %}{{ area_points.comment|urlize|linebreaks }}{% endspaceless %}';
+			eval('infowindow_html = "' + e.areas[j].comment + '<form data-ajax=false action=/send method=get><input type=hidden name=key value=' + e.areas[j].id + '><input type=hidden name=referer value=4><input type=hidden name=map_name value=' + e.areas[j].map_name + '><input type=hidden name=lat value=' + latLng.lat() + '><input type=hidden name=lng value=' + latLng.lng() + '><input type=submit value=メール onclick=infoWindow' + e.areas[j].id + '.close();></form>'+'<p>[' + e.areas[j].map_name_4view + ']</p>";');
+			//infoWindow{{ area_points.key.id }} = new google.maps.InfoWindow({
+			eval('infoWindow' + e.areas[j].id + '= new google.maps.InfoWindow({content: infowindow_html,disableAutoPan: true});');
+
+			//google.maps.event.addListener(polygon{{ area_points.key.id }}, 'click', function(e){
+			eval('google.maps.event.addListener(polygon' + e.areas[j].id + ', "click", function(e){infoWindow' + e.areas[j].id + '.setPosition(e.latLng);' + 'infoWindow' + e.areas[j].id + '.open(map);' + 'info_windows.push(infoWindow' + e.areas[j].id + ');});');
+			
+			////2011/10/03 07:57
+		    eval('$(document).delegate("#open_info_' +  e.areas[j].id + '", "click", function(event){$("#option_comment").html("' + e.areas[j].comment + '");$("#option_information").html("'+ e.areas[j].information + '");$("#option_category").html("' + e.areas[j].category + '");});');
+			eval('b_info[' +  e.areas[j].id + '] = false;');
+			
+			//情報ウィンドウを閉じるとトラッキング再開。2011/09/05 19:15
+			eval('google.maps.event.addListener(infoWindow' +  e.areas[j].id + ', "closeclick", function(e){b_info[' +  e.areas[j].id + '] = true;});');
+			
+			v_count = e.areas[j].area.length;
+			var vec = new Array(v_count);
+			//判定対象の点の配列を作成。
+			for(var i = 0;i < v_count ;i++){
+				vec[i] = {lat:e.areas[j].area[i].lat,lng:e.areas[j].area[i].lng};
+			}
+
+			if(is_InsidePolygon(v_count, vec, {lat:latitude,lng:longitude})){
+				output_str = $("#location").html();
+				//エリア内に入った事がない状態であれば停止。
+				eval('if(!b_info[' +  e.areas[j].id + ']){stopTracking();output_str += "　<font color=red>範囲内です。</font>";infoWindow' +  e.areas[j].id + '.open(map,theUser);}else{if(b_info[' +  e.areas[j].id + ']){b_info[' +  e.areas[j].id + '] = false;}}');
+				$("#location").html(output_str);
+			}
+			//現在位置から一番近いエリアを検索してルート表示。
+			closest_res = getClosestPolygon(v_count,vec,{lat:latitude,lng:longitude});
+			//戻ってきた値を比較して一番近いところであれば地点情報を更新。
+			if(closest_res.length < closest_value){
+				dest_point.lat = vec[closest_res.p].lat;
+				dest_point.lng = vec[closest_res.p].lng;
+				closest_value = closest_res.length;
+			}
+		}
+		//マップの再描画
+		google.maps.event.trigger(map,'refresh');
+	});
+
+	//起動時にはボタンラベルは停止。
+	//aタグの場合
+	//$('#switch_btn').children('.ui-btn-inner').children('.ui-btn-text').text(switch_btn_label_not_tracking);
+	//buttonタグの場合
+	//$('#switch_btn').siblings('.ui-btn-inner').children('.ui-btn-text').text(switch_btn_label_not_tracking);
+	//ルート検索も押せない状態。
+	$("#search_btn").attr({disabled:true});
+	$("#delete_route_btn").attr({disabled:true});
+	//$("#search_btn").button('disable');
+	//$("#delete_route_btn").button('disable');
+	
+	if(!sample4pc){
+		//トラッキング開始。
+		startTracking();
+	}
+	//移動先,効果名,反転,ハッシュ更新
+	//$.mobile.changePage("#gps_map", "pop", false, true);
+	
+	//google.maps.event.trigger(map,'refresh');
+}
+
+function point( lat, lng ){
+	this.lat = lat;
+	this.lng = lng;
+}
+
+function showLocation(pos){
+	latLng = new google.maps.LatLng(pos.coords.latitude,pos.coords.longitude);
+	if (geocoder) {
+		geocoder.geocode({'latLng': latLng}, function(results, status) {
+			if (status == google.maps.GeocoderStatus.OK) {
+				if (results[1]) {
+					console.log("show location.");
+					//console.dir(results[1]);
+					
+					var time = pos.timestamp;
+					var pos_D       = new Date(time);
+					var pos_Year    = pos_D.getFullYear();
+					var pos_Month   = zero_pad(pos_D.getMonth() + 1);
+					var pos_Date    = zero_pad(pos_D.getDate());
+					var pos_Hours   = zero_pad(pos_D.getHours());
+					var pos_Minutes = zero_pad(pos_D.getMinutes());
+					var pos_Seconds = zero_pad(pos_D.getSeconds());
+					
+					var pos_Date = pos_Year + "-" + pos_Month + "-" + pos_Date + " "+ pos_Hours + ":" + pos_Minutes + ":" + pos_Seconds;
+					
+					output_str = results[1].formatted_address + " [latitude:" + latLng.lat() +" longitude:"+ latLng.lng() +"] (GPS timestamp:" + pos_Date + ")";
+					output_str  += "<br />位置精度（推定）：約 " + pos.coords.accuracy  + "m<br />";
+					$("#location").html(output_str);
+					////
+					$.getJSON("/list/closed10jsonp?lat="+ latLng.lat() + "&lng=" + latLng.lng() +"&callback=?", function(e){
+						//マップから情報ウィンドウとエリアを非表示にしてオブジェクトを破棄
+						if (polygon_areas) {
+							for (var i in polygon_areas) {
+								var t_p = polygon_areas[i];
+								t_p.setMap(null);
+								t_p = null;
+							}
+						}
+						//イベントリスナも削除。でもこれはNGみたいでエラーが戻るのでコメント。
+						//google.maps.event.clearListeners(polygon{{ area_points.key.id }}, 'click');
+						
+						closest_value = Number.MAX_VALUE;
+						dest_point = new point(0,0);
+							
+						////受信したデータからポリゴン作成。
+						for(var j=0; j<e.areas.length; j++){
+							//t_area_points = e.areas[j].area;
+							eval("var area_points" + e.areas[j].id + " = [];");
+							var t_geo_latlng;
+							//console.log(e.areas[j].area.length);
+							for(var i=0; i < e.areas[j].area.length; i++){
+								t_geo_latlng = new google.maps.LatLng(e.areas[j].area[i].lat,e.areas[j].area[i].lng);
+								eval("area_points" + e.areas[j].id +".push(t_geo_latlng);");
+								//area_points{{ area_points.key.id }}.push(t_geo_latlng);
+							}
+							//console.log("area_points" + e.areas[j].id);
+							//console.dir(eval("area_points" + e.areas[j].id));
+							
+							//ポリゴンの中心点を求める。
+							var t_lat = 0;
+							var t_lng = 0;
+							for(var i=0; i < e.areas[j].area.length; i++){
+								t_lat += e.areas[j].area[i].lat;
+								t_lng += e.areas[j].area[i].lng;
+							}
+							var ave_lat = t_lat / e.areas[j].area.length;
+							var ave_lng = t_lng / e.areas[j].area.length;
+							eval('polygon_center' + e.areas[j].id + ' = new google.maps.LatLng(ave_lat,ave_lng);');
+							// ポリゴンのオプションを設定
+							//var polygonOptions{{ area_points.key.id }} = {
+							eval('var polygonOptions' + e.areas[j].id + ' = {path:area_points' + e.areas[j].id + ',strokeWeight: 2,strokeColor: "#ff0000",strokeOpacity: 0.5,fillColor: "#ff0000",fillOpacity: 0.2};');
+							
+							//console.dir(eval("polygonOptions" + e.areas[j].id));
+							// ポリゴンを設定
+							//polygon{{ area_points.key.id }} = new google.maps.Polygon(polygonOptions{{ area_points.key.id }});
+							eval("polygon" + e.areas[j].id + " = new google.maps.Polygon(polygonOptions" + e.areas[j].id + ");");
+							//polygon{{ area_points.key.id }}.setMap(map);
+							eval("polygon" + e.areas[j].id + ".setMap(map);");
+							eval('polygon_areas.push(polygon' + e.areas[j].id + ');');
+							
+							//エリアの情報ウィンドウを作成。2011/09/04 13:10
+							//infowindow_html = '{% spaceless %}{{ area_points.comment|urlize|linebreaks }}{% endspaceless %}';
+							eval('infowindow_html = "' + e.areas[j].comment + '<form data-ajax=false action=/send method=get><input type=hidden name=key value=' + e.areas[j].id + '><input type=hidden name=referer value=4><input type=hidden name=map_name value=' + e.areas[j].map_name + '><input type=hidden name=lat value=' + latLng.lat() + '><input type=hidden name=lng value=' + latLng.lng() + '><input type=submit value=メール onclick=infoWindow' + e.areas[j].id + '.close();></form>'+'<p>[' + e.areas[j].map_name_4view + ']</p>";');
+							//infoWindow{{ area_points.key.id }} = new google.maps.InfoWindow({
+							eval('infoWindow' + e.areas[j].id + '= new google.maps.InfoWindow({content: infowindow_html,disableAutoPan: true});');
+
+							//google.maps.event.addListener(polygon{{ area_points.key.id }}, 'click', function(e){
+							eval('google.maps.event.addListener(polygon' + e.areas[j].id + ', "click", function(e){infoWindow' + e.areas[j].id + '.setPosition(e.latLng);' + 'infoWindow' + e.areas[j].id + '.open(map);' + 'info_windows.push(infoWindow' + e.areas[j].id + ');});');
+							
+							////2011/10/03 07:57
+						    eval('$(document).delegate("#open_info_' +  e.areas[j].id + '", "click", function(event){$("#option_comment").html("' + e.areas[j].comment + '");$("#option_information").html("'+ e.areas[j].information + '");$("#option_category").html("' + e.areas[j].category + '");});');
+							eval('b_info[' +  e.areas[j].id + '] = false;');
+							
+							//情報ウィンドウを閉じるとトラッキング再開。2011/09/05 19:15
+							eval('google.maps.event.addListener(infoWindow' +  e.areas[j].id + ', "closeclick", function(e){b_info[' +  e.areas[j].id + '] = true;});');
+							
+							v_count = e.areas[j].area.length;
+							var vec = new Array(v_count);
+							//判定対象の点の配列を作成。
+							for(var i = 0;i < v_count ;i++){
+								vec[i] = {lat:e.areas[j].area[i].lat,lng:e.areas[j].area[i].lng};
+							}
+
+							if(is_InsidePolygon(v_count, vec, {lat:latLng.lat(),lng:latLng.lng()})){
+								output_str = $("#location").html();
+								//エリア内に入った事がない状態であれば停止。
+								eval('if(!b_info[' +  e.areas[j].id + ']){stopTracking();output_str += "　<font color=red>範囲内です。</font>";infoWindow' +  e.areas[j].id + '.open(map,theUser);}else{if(b_info[' +  e.areas[j].id + ']){b_info[' +  e.areas[j].id + '] = false;}}');
+								$("#location").html(output_str);
+							}
+							//現在位置から一番近いエリアを検索してルート表示。
+							closest_res = getClosestPolygon(v_count,vec,{lat:latLng.lat(),lng:latLng.lng()});
+							//戻ってきた値を比較して一番近いところであれば地点情報を更新。
+							if(closest_res.length < closest_value){
+								dest_point.lat = vec[closest_res.p].lat;
+								dest_point.lng = vec[closest_res.p].lng;
+								closest_value = closest_res.length;
+							}
+						}
+						//マップの再描画
+						google.maps.event.trigger(map,'refresh');
+					});
+				}
+			}
+		});
+	}
+}
+
+
+
+function stopTracking(){
+	if (trackerId){
+		//last_latlng = map.getCenter();
+		navigator.geolocation.clearWatch(trackerId);
+		trackerId = 0;
+		$('#switch_btn').children('.ui-btn-inner').children('.ui-btn-text').text(switch_btn_label_tracking);
+		if($("#switch_btn").hasClass("ui-btn-active")){
+			$("#switch_btn").removeClass("ui-btn-active");
+		}
+		console.log("stopTracking.");
+	}
+}
+
+function startTracking(){
+	$('#switch_btn').children('.ui-btn-inner').children('.ui-btn-text').text(switch_btn_label_not_tracking);
+	try{
+		if(!trackerId){
+			trackerId = gps.watchPosition(function(pos){
+				/*Android3G環境だと初回に大雑把な情報、2回目にGPSを使って精度を高めた情報を返してくるので
+				範囲内かどうかの判定を行う場合は、1回目ですでにエリア外に出た事になり2回目でエリア内に戻ってきた
+				という判定を延々と繰り返してエリア外に出ても情報ウィンドウを何度も閉じる操作をするハメになる。
+				*/
+				//var latLngと宣言してた。globalである必要があるように思う。
+				/*
+				console.log(typeof(last_latlng));
+				if(typeof(last_latlng) != "number"){
+					map.setCenter(last_latlng);
+					last_latlng = 0;
+				}else{
+					latLng = new google.maps.LatLng(pos.coords.latitude,pos.coords.longitude);
+					map.setCenter(latLng);
+				}
+				*/
+				latLng = new google.maps.LatLng(pos.coords.latitude,pos.coords.longitude);
+				if(pos.coords.accuracy < 50){
+					//map.setCenter(latLng);
+					map.panTo(latLng);
+					theUser.setPosition(latLng);
+					showLocation(pos);
+					
+					$("#search_btn").attr({disabled:false});
+					$("#delete_route_btn").attr({disabled:false});
+					//$("#search_btn").button('enable');
+					//$("#delete_route_btn").button('enable');
+		
+					stopTracking();
+				}
+				/*
+				setTimeout( function() {
+				
+				}, 5000);
+				*/
+			},
+			function(error){
+				if(error.code != 0){
+					$("#location").text("[watchPosition]エラー：" + error.code + ":" + error.message);
+					stopTracking();
+				}
+			},{enableHighAccuracy:true, maximumAge:1, timeout:10000});
+			console.log("startTracking.");
+		}else{
+			console.log("trackerId is already exists.");
+			return;
+		}
+	}catch(e){
+		alert("geolocationサービスは使えません。");
+		stopTracking();
+	}
+}
+
+function getClosestPolygon(v_count,vertex,d_point){
+//vertex:頂点の配列。
+//d_point:判定対象の点。{x:mouseX,y:mouseY}をセット。
+	var vec = new Array(v_count);
+	//判定対象の点を原点として各頂点を移動した場合の配列を作成。
+	for(var i = 0;i < v_count;i++){
+		vec[i] = new point( vertex[i].lat - d_point.lat, vertex[i].lng - d_point.lng );
+	}
+	var closest_length = Number.MAX_VALUE;
+	var closest_point = 0;
+	var point_length = 0;
+	for( var i = 0;i < v_count;i++ ){
+		point_length = Math.sqrt( vec[i].lat * vec[i].lat + vec[i].lng * vec[i].lng );
+		//console.log(i + ":" + point_length);
+		if(point_length < closest_length){
+			closest_length = point_length;
+			closest_point = i;
+		}
+	}
+	return {'p':closest_point, 'length':closest_length};
+}
+
+////
+//$('#gps_map').live("pageshow", function() {
+//	$('#map_canvas').gmap('refresh');
+//});
+//$('#gps_map').live("pagecreate", function() {
+//	$('#map_canvas').gmap({'center': '59.3426606750, 18.0736160278', 'mapTypeId': 'terrain'}).bind('init', function(evt, map) {
+//		$('#map_canvas').gmap('watchPosition', function(position, status) {
+//			if ( status === 'OK' ) {
+//				var latlng = new google.maps.LatLng(position.coords.latitude, position.coords.longitude);
+//				var marker = $('#map_canvas').gmap('get', 'markers > client' );
+//				if ( !marker ) {
+//					$('#map_canvas').gmap('addMarker', { 'id': 'client', 'position': latlng, 'bounds': true });
+//				} else {
+//					marker.setPosition(latlng);
+//					map.panTo(latlng);
+//				}
+//			}
+//		});
+//	});
+//});
+//$('#gps_map').live("pagehide", function() {
+//	$('#map_canvas').gmap('clearWatch');
+//});
+</script>
+<script type="text/javascript">
+  var _gaq = _gaq || [];
+  _gaq.push(['_setAccount', 'UA-17100173-10']);
+  _gaq.push(['_trackPageview']);
+  (function() {
+    var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+    ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+    var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+  })();
+</script>
+<style type="text/css">
+#gmap
+{
+	margin-bottom: 5px;
+}
+#lat, #lng
+{
+	font-size: 15px;
+	/*padding:0px 12px;*/
+}
+
+div#map_canvas, div#map_canvas_2{
+  /*width:100%;*/
+  /*height: 415%;*/
+  border:1px solid black;
+ -webkit-box-sizing: border-box;
+  box-sizing:border-box;
+}
+.page-map, .ui-content, #map-canvas {
+	width: 100%;
+	height: 100%;
+	padding: 0;
+}
+#marker_info{
+	clear:both;
+	/*display:none;*/
+}
+.msg{
+	/*font-size: 14px;*/
+}
+#information{
+	/*font-size: 16px;*/
+}
+#lat_lng{
+	display:none;
+}
+#footer{
+	font-size: 12px;
+}
+</style>
+</head>
+<body style="margin: 0px; padding: 0px;">
+<div id="gps_map" data-role="page" data-fullscreen="true" class="page-map">
+	<div data-role="header" data-add-back-btn="true" data-position="fixed">
+		<h1>近隣10箇所（β版）</h1>
+		<a href="#information" data-icon="check" class="ui-btn-left" data-ajax="false">info</a>
+	</div>
+	<div data-role="content" style="width:100%; height:100%; padding:0;">
+		<div id="map_canvas" style="width:100%;height:100%"></div>
+		
+	</div>
+	<div id="footer" data-role="footer" data-position="fixed">
+		<!--<div class="ui-bar">-->
+		<div data-role="navbar">
+			<ul id="button_list">
+			<li><a id ="switch_btn">GPS off</a></li>
+			<li><a id ="search_btn" >route</a></li>
+			<li><a id ="delete_route_btn" >route hide</a></li>
+			</ul>
+		</div>
+	</div>
+</div>
+<!-- information -->
+<div data-role="page" id="information" data-add-back-btn="true" data-back-btn-text="back">
+	<div data-role="header" data-position="fixed">
+		<h1>info</h1>
+		<a href="#gps_map" data-icon="home" data-ajax="false">back</a>
+	</div>
+	<div data-role="content">
+		<div id="marker_info">
+			<span class="msg">
+				<span id="location"></span>
+				<p />
+				<span id="directionsPanel"></span>
+			</span>
+		</div>
+		<div><span id="lat_lng"></span></div>
+	</div>
+	<div id="footer" data-role="footer" data-position="fixed">
+		<span xmlns:dct="http://purl.org/dc/terms/" property="dct:title">InsidePolygon</span> by <a xmlns:cc="http://creativecommons.org/ns#" href="http://www.masanoriyono.net" property="cc:attributionName" rel="cc:attributionURL">MasanoriYono</a> is licensed under a <a rel="license" href="http://creativecommons.org/licenses/by-sa/2.1/jp/">Creative Commons 表示 - 継承 2.1 日本 License</a>
+	</div>
+</div>
+<!-- information -->
+
+<!-- mail_get -->
+<div data-role="page" id="mail_get" data-add-back-btn="true" data-back-btn-text="back">
+	<div data-role="header" data-position="fixed">
+		<h1>mail_get</h1>
+		<a href="#gps_map" data-icon="home" data-ajax="false">back</a>
+	</div>
+	<div data-role="content">
+		<span class="msg">
+		コメント <span id="option_comment"></span>
+		<p />
+		情報 <span id="option_information"></span>
+		<p />
+		カテゴリ <span id="option_category"></span>
+		</span>
+	</div>
+	<div id="footer" data-role="footer" data-position="fixed">
+		<span xmlns:dct="http://purl.org/dc/terms/" property="dct:title">InsidePolygon</span> by <a xmlns:cc="http://creativecommons.org/ns#" href="http://www.masanoriyono.net" property="cc:attributionName" rel="cc:attributionURL">MasanoriYono</a> is licensed under a <a rel="license" href="http://creativecommons.org/licenses/by-sa/2.1/jp/">Creative Commons 表示 - 継承 2.1 日本 License</a>
+	</div>
+</div>
+<!-- mail_get -->
+</body>
+</html>

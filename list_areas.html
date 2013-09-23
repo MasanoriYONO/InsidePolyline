@@ -1,0 +1,64 @@
+<html>
+<head>
+<title>登録されているエリア</title>
+<meta http-equiv="content-type" content="text/html; charset=utf-8" />
+<script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jquery/1.4.2/jquery.min.js"></script>
+<script type="text/javascript" src="http://maps.google.com/maps/api/js?sensor=false"></script>
+<script type="text/javascript">
+$(function(){
+     $("tr:odd").addClass("odd");
+});
+</script>
+<style type="text/css">
+#gmap
+{
+	margin-bottom: 15px;
+}
+#lat, #lng
+{
+	font-size: 15px;
+	/*padding:0px 12px;*/
+}
+table{border:none;}
+tr{background: #ddd}
+td{padding: 3px}
+.odd{background: #fff }
+</style>
+</head>
+<body>
+<div>
+<h3>エリアリスト</h3>
+<table>
+<thead>
+<tr>
+<th>key</th><th>area</th><th>author</th><th>map_name</th><th>comment</th><th>category</th><th>information</th><th>remote_host</th><th>user_agent</th><th>updated_at</th><th>変更</th><th>削除</th>
+</tr>
+</thead>
+{% if areas %}
+{% for area in areas %}
+<tr>
+<td>{{ area.key.id }}</td><td>{{ area.area }}</td><td>{{ area.author }}</td><td>{{ area.map_name }}</td><td>{{ area.comment }}</td><td>{{ area.category }}</td><td>{{ area.information }}</td><td>{{ area.remote_host }}</td><td>{{ area.user_agent }}</td><td>{{ area.updated_at|date:"Y-m-d H:i:s" }}</td>
+<form action="/admin/user_area_modify" method="post">
+<td>
+<input type="hidden" name="key" value="{{ area.key.id }}">
+<input type="hidden" name="map_name" value="{{ area.map_name }}">
+<input type="hidden" name="author" value="{{ area.author }}">
+<input type="submit" value="変更">
+</td>
+</form>
+<form action="/admin/user_area_delete" method="post">
+<td>
+<input type="hidden" name="key" value="{{ area.key.id }}">
+<input type="hidden" name="map_name" value="{{ area.map_name }}">
+<input type="submit" value="削除">
+</td>
+</form>
+</tr>
+{% endfor %}
+{% endif %}
+</table>
+</div>
+
+<a href="/admin/user_view">戻る</a>
+</body>
+</html>

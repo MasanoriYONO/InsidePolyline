@@ -1,0 +1,452 @@
+<html>
+<head>
+<title>ポリゴン登録（β版）</title>
+<meta http-equiv="content-type" content="text/html; charset=utf-8" />
+<script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jquery/1.4.2/jquery.min.js"></script>
+<script type="text/javascript" src="http://maps.google.com/maps/api/js?sensor=false"></script>
+<!-- Googleの推奨先 http://googlegeodevelopers.blogspot.com/2011/10/grab-bag-of-maps-api-news.html -->
+<!-- この書き方ではダメらしい。2011/11/10 06:07 -->
+<script src="http://ajax.googleapis.com/ajax/libs/dojo/1.6.1/dojo/dojo.xd.js" type="text/javascript"></script>
+<script type="text/javascript" src="/js/inside_polygon.js"></script>
+<script type="text/javascript" src="/js/jquery.simplemodal-1.4.1.js"></script>
+<script type="text/javascript">
+	var djConfig = {
+		isDebug:true,
+		parseOnLoad:true
+	};
+</script>
+<script type="text/javascript">
+	dojo.require("dojo.io.script");
+
+	var info_windows = [];
+	
+	google.maps.event.addDomListener(window, 'load', function(){
+		var markerObj;
+		var mapObj;
+		var lng = 138.3842183974839;
+		var lat = 34.97285824647155;
+		var latlng = new google.maps.LatLng(lat, lng);
+
+		var mapOptions = {
+			zoom: 17,
+			center: latlng,
+			mapTypeId: google.maps.MapTypeId.ROADMAP,
+			scaleControl: true
+		};
+		mapObj = new google.maps.Map($("#gmap")[0], mapOptions);
+
+		markerObj = new google.maps.Marker({
+			position: latlng,
+			draggable: true,
+			title: "ここの緯度経度は？",
+			map: mapObj
+		});
+		
+		// ラインを引く座標の配列の入れ物を作成 
+		var points = new Array();
+		var points_log = new Array(); 
+
+		// ラインオプションを作成
+		var polyLineOptions = {
+			path: null,
+			strokeWeight: 5,
+			strokeColor: "#0000ff",
+			strokeOpacity: "0.5"
+		};
+		{% if areas %}
+		{% for area_points in areas %}
+		// 作成するポリゴン外枠座標の配列 
+		t_area_points = {{ area_points.area }};
+		var area_points{{ area_points.key.id }} = [];
+		var t_geo_latlng;
+		for(var i=0; i<t_area_points.length; i++){
+			t_geo_latlng = new google.maps.LatLng(t_area_points[i].lat,t_area_points[i].lng);
+			area_points{{ area_points.key.id }}.push(t_geo_latlng);
+		}
+		// ポリゴンのオプションを設定 
+		var polygonOptions{{ area_points.key.id }} = {
+			path: area_points{{ area_points.key.id }},
+			strokeWeight: 2,
+			strokeColor: "#ff0000",
+			strokeOpacity: 0.5,
+			fillColor: "#ff0000",
+			fillOpacity: 0.2
+		};
+		
+		//ポリゴンの中心点を求める。2011/09/23 12:55
+		var t_lat = 0;
+		var t_lng = 0;
+		for(var i=0; i<t_area_points.length; i++){
+			t_lat += t_area_points[i].lat;
+			t_lng += t_area_points[i].lng;
+		}
+		var ave_lat = t_lat / t_area_points.length;
+		var ave_lng = t_lng / t_area_points.length;
+		polygon_center{{ area_points.key.id }} = new google.maps.LatLng(ave_lat,ave_lng);
+		
+		// ポリゴンを設定
+		polygon{{ area_points.key.id }} = new google.maps.Polygon(polygonOptions{{ area_points.key.id }});
+		polygon{{ area_points.key.id }}.setMap(mapObj);
+		
+		//エリアの情報ウィンドウを作成。2011/09/04 13:10
+		infowindow_html = '{% spaceless %}{{ area_points.comment|safe|urlize|linebreaks }}{% endspaceless %}';
+		infoWindow{{ area_points.key.id }} = new google.maps.InfoWindow({
+			content:infowindow_html,
+			disableAutoPan: false
+		});
+		
+		google.maps.event.addListener(polygon{{ area_points.key.id }}, 'click', function(e){
+			// Html文字列を作成。linebreaksbrではエラーになる。2011/09/02 18:45
+			//var html = '{% spaceless %}{{ area_points.comment|urlize|linebreaks }}{% endspaceless %}';
+			// info Windowを作成
+			//var infoWindow{{ area_points.key.id }} = new google.maps.InfoWindow();
+			//infoWindow{{ area_points.key.id }}.setContent(html);
+			mapObj.panTo(e.latLng)
+			infoWindow{{ area_points.key.id }}.setPosition(e.latLng);
+			infoWindow{{ area_points.key.id }}.open(mapObj);
+			info_windows.push(infoWindow{{ area_points.key.id }});
+			//console.dir(e);
+		});
+
+		{% endfor %}
+		{% else %}
+		<!-- データはありません。-->
+		{% endif %}
+		// マップクリックイベントを追加
+		google.maps.event.addListener(mapObj, 'click', function(e){
+			// ポジションを変更
+			markerObj.position = e.latLng;
+			
+			// マーカーをセット
+			markerObj.setMap(mapObj);
+			$("#lat_lng").text(e.latLng.lat() + ',' + e.latLng.lng());
+		});
+		// マーカードラッグ中のイベントを追加
+		google.maps.event.addListener(markerObj, 'drag', function(e){
+			$("#lat_lng").text(e.latLng.lat() + ',' + e.latLng.lng());
+		});
+		
+		// マーカードラッグエンドのイベントを追加
+		google.maps.event.addListener(markerObj, 'dragend', function(e){
+			var output_str = e.latLng.lat() + ',' + e.latLng.lng();
+			$("#lat_lng").text(output_str);
+			
+			var v_count;
+			
+			{% if areas %}
+			{% for area_points in areas %}
+			
+			t_area_points = {{ area_points.area }};
+			v_count = t_area_points.length;
+			
+			//判定対象の点の配列を作成。
+			var vec = new Array(v_count);
+			for(var i = 0;i < v_count ;i++){
+				vec[i] = {lat:t_area_points[i].lat,lng:t_area_points[i].lng};
+			}
+			if(is_InsidePolygon(v_count, vec, {lat:e.latLng.lat(),lng:e.latLng.lng()})){
+				//情報ウィンドウの表示。2011/09/04 13:09
+				infoWindow{{ area_points.key.id }}.open(mapObj,markerObj);
+				output_str += "　<font color=red>範囲内です。</font>";
+				$("#lat_lng").html(output_str);
+				
+			}
+//			//API接続。
+//			dojo.io.script.get({
+//				url: "http://inside-polygon.appspot.com/",
+//				timeout: 10000,
+//				callbackParamName: "callback",
+//				content: {
+//					args0:v_count, //ポリゴンの配列要素の数 JSON形式
+//					args1:dojo.toJson(t_area_points), //ポリゴンの配列 JSON形式
+//					args2:dojo.toJson({lat:e.latLng.lat(),lng:e.latLng.lng()}) //マーカーの緯度経度
+//				},
+//				//handleAs: "json",
+//				load: function(response){
+//					// {result: {"judge":true,"radian":6.2831853071796}}
+//					// or
+//					// {result: {"judge":false,"radian":4.2812975387108e-15}}
+//					//var res = dojo.fromJson(response);
+//					console.log(response.result.judge);// true or false
+//					if(response.result.judge){
+//						infoWindow{{ area_points.key.id }}.open(mapObj,markerObj);
+//						output_str += "　<font color=red>範囲内です。</font>";
+//						$("#lat_lng").html(output_str);
+//					}
+//					
+//				}
+//			});
+			{% endfor %}
+			{% endif %}
+//				// クリックした場所を配列に追加
+//				points.push(e.latLng);
+//				points_log.push(e.latLng);
+//				// 配列の数を２つに調整する
+//				if (points.length > 2) {
+//					points.shift();
+//				}
+//				// ラインを作成
+//				if (points.length > 0) {
+//					polyLineOptions.path = points;
+//					var poly = new google.maps.Polyline(polyLineOptions);
+//					poly.setMap(mapObj);
+//				}
+//				
+//				var output_str = "[";
+//				for(var i in points_log){
+//					//output_str += "new google.maps.LatLng(" + points_log[i].lat() + "," + points_log[i].lng() + "),\n";
+//					output_str += "{lat:" + points_log[i].lat() + ",lng:" + points_log[i].lng() + "},";
+//				}
+//				output_str = output_str.slice(0,output_str.length -1);
+//				output_str += "]";
+//				
+//				$("#vertex").text(output_str);
+		});
+	});
+
+function closeWindows(){
+	if (info_windows) {
+		for (var i in info_windows) {
+			info_windows[i].close();
+		}
+	}
+}
+
+function unsetWindows(){
+	if (info_windows) {
+		closeWindows();
+		info_windows.length = 0;
+	}
+}
+
+function openInfoWindowFromSubs(p_id,p_center){
+	google.maps.event.trigger(eval(p_id), 'click',{latLng:eval(p_center)});
+}
+
+function openInfoWindowFromDialog(p_id,p_center){
+	unsetWindows();
+	openInfoWindowFromSubs(p_id, p_center);
+}
+
+$(function(){
+     $(".open").click(function(){
+      $("#slideBox").slideToggle("slow");
+     });
+});
+$(function() {
+   $('#accordion dd').hide();
+   $('#accordion dt a').click(function(){
+       $('#accordion dd').slideUp();
+       $(this).parent().next().slideDown();
+       //イベントキャプチャリングする場合はtrue,イベントバブリングならfalse。
+       return true;
+   });
+});
+
+jQuery(function ($) {
+	//マップ枚数分のイベントを登録。
+	{% for map_name in map_names %}
+	{% if each_maps %}
+	{% for each_map in each_maps.items %}
+	{% ifequal each_map.0 map_name.name %}
+	$('#basic-modal_{{ map_name.name }}').click(function (e) {
+		$('#basic-modal-content_{{ map_name.name }}').modal({onShow: function(){
+			$('#basic-modal-content_{{ map_name.name }}').maxHeight = 360;
+			$('#basic-modal-content_{{ map_name.name }}').autoResize = true;
+		}});
+		return false;
+	});
+	
+	
+	{% endifequal %}
+	{% endfor %}
+	{% endif %}
+	{% endfor %}
+});
+</script>
+<script type="text/javascript">
+
+  var _gaq = _gaq || [];
+  _gaq.push(['_setAccount', 'UA-17100173-10']);
+  _gaq.push(['_trackPageview']);
+
+  (function() {
+    var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+    ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+    var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+  })();
+
+</script>
+<style type="text/css">
+#gmap
+{
+	margin-bottom: 5px;
+}
+#lat, #lng
+{
+	font-size: 15px;
+	/*padding:0px 12px;*/
+}
+.open{
+	background: #fc6;
+	color: #fff;
+	cursor: pointer;
+	text-align:center;
+	width:246px;
+	padding: 3px
+}
+#slideBox{
+	padding: 5px;
+	border: 1px #ccc solid;
+	display:none;
+	width:240px;
+}
+#accordion{
+	border: 1px #ccc solid;
+	border-top:none;
+	width:250px;
+}
+#accordion dt{
+	background: #ddd;
+	padding: 3px;
+	border-top: 1px #ccc solid;
+	}
+	#accordion dt a{color: #000; text-decoration:none;display:block;}
+#accordion dd{margin: 3px; text-align:left;}
+
+#list a{
+	text-decoration:none;
+	color:#cccccc;
+}
+
+#menu{
+	font-size: 14px;
+	margin-right:0;
+	overflow: auto;
+}
+#marker_info{
+	font-size: 14px;
+	/*display:none;*/
+}
+#information{
+	font-size: 14px;
+}
+#footer{
+	font-size: 12px;
+}
+div.box {
+	overflow: auto;
+}
+</style>
+<link type='text/css' href='/css/basic.css' rel='stylesheet' media='screen' />
+</head>
+<body>
+<div class="box">
+	<div id="gmap" style="float:left; width: 75%; height: 93%; border: 1px solid Gray;"></div>
+	<div id="menu" style="float:right;width:24%;heigh:100%">
+	登録されたマップ最新10件
+	<dl id="accordion">
+	{% if map_names %}
+	{% for map_name in map_names %}
+
+	{% if each_maps %}
+	{% for each_map in each_maps.items %}
+	{% ifequal each_map.0 map_name.name %}
+	<!--<dt><a href="javascript:openWin('{{ map_name.name }}',{{ each_map.1 }});">{{ map_name.map_name_4view }}</a></dt>-->
+	<!--<dt><a href="">{{ map_name.map_name_4view }}</a></dt>-->
+	<dt id='basic-modal_{{ map_name.name }}'><a href="#">{{ map_name.map_name_4view }}</a></dt>
+	{% endifequal %}
+	{% endfor %}
+	{% endif %}
+	
+	<dd>
+	<a href="./user_map?map_name={{ map_name.name }}">PC</a><br />
+	<a href="./user_map4gps?map_name={{ map_name.name }}">iPhone & Android</a><br />
+	<a href="./user_map4gps1time?map_name={{ map_name.name }}">iPhone & Android（GPS on/off）</a>
+	</dd>
+	{% endfor %}
+	{% else %}
+	{% endif %}
+	</dl>
+
+	<!-- modal window -->
+	{% for map_name in map_names %}
+	{% if each_maps %}
+	{% for each_map in each_maps.items %}
+	{% ifequal each_map.0 map_name.name %}
+	<div id="basic-modal-content_{{ map_name.name }}" style="display:none;">
+	<h3>{{ map_name.map_name_4view }} 登録エリア</h3>
+	<!--
+	<a style="text-decoration:none;color:#cccccc;" href="javascript:$.modal.close();">close</a>
+	-->
+	{% if areas %}
+	{% for area in areas %}
+	{% ifequal map_name.name area.map_name %}<div id="list"><a href="javascript:openInfoWindowFromDialog('polygon{{ area.key.id }}','polygon_center{{ area.key.id }}');$.modal.close();">{% spaceless %}{{ area.comment|safe|linebreaks|striptags }}{% endspaceless %}</a></div>{% endifequal %}
+	{% endfor %}
+	{% endif %}
+	</div>
+	{% endifequal %}
+	{% endfor %}
+	{% endif %}
+	{% endfor %}
+	
+	<!-- preload the images -->
+	<div style='display:none'>
+		<img src='/images/tb-close.png' alt='' />
+	</div>
+	<!-- modal window end -->
+
+	<div>
+	<a href="./addview">マップの登録</a><br />
+	（Googleアカウントが必要です。）
+	</div>
+	
+	<p class="open">マップの登録に関して</p>
+	<div id="slideBox">
+	ログインすればお試しマップがひとつ作成されます。
+	このマップにエリアを登録することで表示されます。エリアの数が増える程、マップの表示に時間がかかります。<br />
+	無料ユーザーは最新5箇所のエリアが表示されます。	有料ユーザーは上限100箇所のエリアを表示可能にする予定です。
+	サービス内容はβ版ですので予告無く変更される事があります。ご了承ください。
+	<br />
+	有料サービスについては、ご利用金額や方法等検討中です。カスタマイズも承ります。
+	<a href="mailto:myono.c50@gmail.com">こちら</a>までメールにてご相談ください。
+	</div>
+
+	<div>
+	<a href="./list/closed10" target="_blank">近隣10箇所（PC用）</a>
+	</div>
+
+	<div>
+	<a href="./list/closed10gps" target="_blank">近隣10箇所（スマホ用）</a>
+	</div>
+	
+	<p>
+	
+	<div>
+	<a href="http://www.masanoriyono.net/insidepolygon/porigondenglubban" target="_blank">このWebアプリのご説明</a>
+	</div>
+
+	</div>
+	
+<div id="information" style="float:left;width: 75%; height:6%;">
+<div id="marker_info">lat（緯度）,lng（経度）：<span id="lat_lng"></span></div>
+<!--
+	<form action="/add" method="post">
+	<div>
+	<textarea id="vertex" name="vertex" rows="10" cols="100" readonly></textarea>
+	</div>
+	始点と終点を自動的につないでポリゴンにします。
+	<div><input type="submit" value="Add Polygon"></div>
+	</form>
+-->
+<hr />
+<div id="footer">
+<!--
+<a rel="license" href="http://creativecommons.org/licenses/by-sa/2.1/jp/"><img alt="クリエイティブ・コモンズ・ライセンス" style="border-width:0" src="http://i.creativecommons.org/l/by-sa/2.1/jp/80x15.png" /></a>
+-->
+<span xmlns:dct="http://purl.org/dc/terms/" property="dct:title">InsidePolygon</span> by <a xmlns:cc="http://creativecommons.org/ns#" href="http://www.masanoriyono.net" property="cc:attributionName" rel="cc:attributionURL">MasanoriYono</a> is licensed under a <a rel="license" href="http://creativecommons.org/licenses/by-sa/2.1/jp/">Creative Commons 表示 - 継承 2.1 日本 License</a>.
+</div>
+</div>
+</div>
+</body>
+</html>

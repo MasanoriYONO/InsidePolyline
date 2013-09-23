@@ -1,0 +1,52 @@
+<html>
+<head>
+<title>メール送信履歴</title>
+<meta http-equiv="content-type" content="text/html; charset=utf-8" />
+<script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jquery/1.4.2/jquery.min.js"></script>
+<script type="text/javascript" src="http://maps.google.com/maps/api/js?sensor=false"></script>
+<script type="text/javascript">
+$(function(){
+     $("tr:odd").addClass("odd");
+});
+</script>
+<style type="text/css">
+#gmap
+{
+	margin-bottom: 15px;
+}
+#lat, #lng
+{
+	font-size: 15px;
+	/*padding:0px 12px;*/
+}
+table{border:none;}
+tr{background: #ddd}
+td{padding: 3px}
+.odd{background: #fff }
+</style>
+</head>
+<body>
+<div>
+<h3>情報ウィンドウからのメール送信履歴</h3>
+<table>
+<thead>
+<tr>
+<th>key</th><th>map_name</th><th>comment</th><th>category</th><th>information</th><th>user_location</th><th>inside_polygon</th><th>author</th><th>remote_host</th><th>user_agent</th><th>updated_at</th>
+</tr>
+</thead>
+{% if areas %}
+{% for area in areas %}
+<tr>
+<!--
+{% comment %}
+<td>{{ area.key.id }}</td><td>{{ area.map_name }}</td><td>{{ area.comment }}</td><td>{{ area.category }}</td><td>{{ area.information }}</td><td><a href='http://maps.google.com/maps/api/staticmap?center={{ area.user_location }}&size=600x600&zoom=17&maptype=roadmap&markers=color:green|{{ area.user_location }}&sensor=false' target='_blank'>{{ area.user_location }}</a></td><td>{{ area.inside_polygon }}</td><td>{{ area.author }}</td><td>{{ area.remote_host }}</td><td>{{ area.user_agent }}</td><td>{{ area.updated_at|date:"Y-m-d H:i:s" }}</td>
+{% endcomment %}
+-->
+<td>{{ area.key.id }}</td><td>{{ area.map_name }}</td><td>{{ area.comment }}</td><td>{{ area.category }}</td><td>{{ area.information }}</td><td><a href='/list/user_location?map_name={{ area.map_name }}&user_lat_lng={{ area.user_location }}&user_location_date={{ area.updated_at|date:"Y-m-d H:i:s" }}' target='_blank'>{{ area.user_location }}</a></td><td>{{ area.inside_polygon }}</td><td>{{ area.author }}</td><td>{{ area.remote_host }}</td><td>{{ area.user_agent }}</td><td>{{ area.updated_at|date:"Y-m-d H:i:s" }}</td>
+</tr>
+{% endfor %}
+{% endif %}
+</table>
+</div>
+</body>
+</html>
